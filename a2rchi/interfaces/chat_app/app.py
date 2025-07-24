@@ -435,6 +435,10 @@ class FlaskAppWrapper(object):
         self.add_endpoint('/api/dislike', 'dislike', self.dislike,  methods=["POST"])
         self.add_endpoint('/api/update_config', 'update_config', self.update_config, methods=["POST"])
 
+    @app.route("/api/health")
+    def health():
+        return jsonify({"status": "OK"}, 200)
+
     def configs(self, **configs):
         for config, value in configs:
             self.app.config[config.upper()] = value
