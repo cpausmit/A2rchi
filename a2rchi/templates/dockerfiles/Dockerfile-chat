@@ -17,4 +17,7 @@ COPY pyproject.toml pyproject.toml
 COPY weblists weblists
 RUN pip install --upgrade pip && pip install .
 
+# permissions for OpenShift/OKD
+RUN chmod g+rx /root; chmod -R g+w /root/A2rchi/a2rchi/interfaces
+
 CMD ["python", "-u", "a2rchi/bin/service_chat.py"]
