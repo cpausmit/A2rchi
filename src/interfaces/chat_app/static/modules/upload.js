@@ -481,18 +481,11 @@ class DataUploader {
       });
     }
 
-    // Schedule inputs (interval + unit)
-    ['jira','git','links'].forEach(source => {
-      const intervalEl = document.getElementById(`${source}-schedule-interval`);
-      const unitEl = document.getElementById(`${source}-schedule-unit`);
-      if (intervalEl && unitEl) {
-        const onChange = () => {
-          const schedule = this.buildScheduleFromInputs(source);
-          this.updateSourceSchedule(source, schedule);
-        };
-        intervalEl.addEventListener('input', onChange);
-        unitEl.addEventListener('change', onChange);
-      }
+    // Schedule save buttons (explicit save)
+    ['jira', 'git', 'links'].forEach(source => {
+      const saveBtn = document.getElementById(`save-${source}-schedule-btn`);
+      if (!saveBtn) return;
+      saveBtn.addEventListener('click', () => this.saveSourceSchedule(source));
     });
 
     // Refresh button
@@ -1004,11 +997,20 @@ class DataUploader {
         }
       };
       
-      populate('jira', schedules.jira && schedules.jira.cron);
-      populate('git', schedules.git && schedules.git.cron);
-      populate('links', schedules.links && schedules.links.cron);
+      const jiraSchedule = schedules.jira || {};
+      const gitSchedule = schedules.git || {};
+      const linksSchedule = schedules.links || {};
+
+      populate('jira', jiraSchedule.cron);
+      populate('git', gitSchedule.cron);
+      populate('links', linksSchedule.cron);
+
+      this.renderCurrentSchedule('jira', jiraSchedule);
+      this.renderCurrentSchedule('git', gitSchedule);
+      this.renderCurrentSchedule('links', linksSchedule);
     } catch (err) {
       console.warn('Failed to load source schedules:', err);
+      ['jira', 'git', 'links'].forEach((source) => this.renderCurrentSchedule(source, null));
     }
   }
 
@@ -1033,6 +1035,55 @@ class DataUploader {
       toast.error(`Failed to update schedule: ${err.message}`);
       return false;
     }
+  }
+
+  async saveSourceSchedule(source) {
+    const schedule = this.buildScheduleFromInputs(source);
+    const saved = await this.updateSourceSchedule(source, schedule);
+    if (!saved) return;
+
+    await this.loadSourceSchedules();
+    const summary = schedule ? this.formatCronForDisplay(schedule, 'custom') : 'Disabled';
+    toast.success(`${source.toUpperCase()} schedule saved (${summary})`);
+  }
+
+  renderCurrentSchedule(source, scheduleEntry) {
+    const currentEl = document.getElementById(`${source}-current-schedule`);
+    const nextEl = document.getElementById(`${source}-next-run`);
+    const lastEl = document.getElementById(`${source}-last-run`);
+    if (!currentEl) return;
+
+    const cron = scheduleEntry?.cron || '';
+    const display = scheduleEntry?.display || '';
+    currentEl.textContent = this.formatCronForDisplay(cron, display);
+    if (nextEl) {
+      nextEl.textContent = this.formatScheduleTimestamp(
+        scheduleEntry?.next_run,
+        cron ? 'Unknown' : 'Not scheduled'
+      );
+    }
+    if (lastEl) {
+      lastEl.textContent = this.formatScheduleTimestamp(scheduleEntry?.last_run, 'Never');
+    }
+  }
+
+  formatCronForDisplay(cron, display = '') {
+    if (!cron || display === 'disabled') return 'Disabled';
+    if (display === 'hourly') return 'Hourly';
+    if (display === 'every_6h') return 'Every 6 hours';
+    if (display === 'daily') return 'Daily';
+
+    if (cron === '0 * * * *') return 'Hourly';
+    if (cron === '0 */6 * * *') return 'Every 6 hours';
+    if (cron === '0 0 * * *') return 'Daily';
+    return cron;
+  }
+
+  formatScheduleTimestamp(value, fallback) {
+    if (!value) return fallback;
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return fallback;
+    return date.toLocaleString();
   }
 
   /**
@@ -1077,7 +1128,7 @@ class DataUploader {
       return;
     }
     // hourly pattern including zero-minute marker
-    m = cron.match(/^0 \/(\d+) \* \* \*$/);
+    m = cron.match(/^0 \*\/(\d+) \* \* \*$/);
     if (m) {
       intervalEl.value = m[1];
       unitEl.value = 'hours';
@@ -1089,7 +1140,7 @@ class DataUploader {
       return;
     }
     // daily patterns
-    m = cron.match(/^0 0 \/(\d+) \* \*$/);
+    m = cron.match(/^0 0 \*\/(\d+) \* \*$/);
     if (m) {
       intervalEl.value = m[1];
       unitEl.value = 'days';

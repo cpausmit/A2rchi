@@ -269,10 +269,22 @@ class FlaskAppWrapper:
         Use the ScraperManager to collect and persist a single URL provided via form data.
         """
         url = request.form.get("url")
+        depth_raw = request.form.get("depth")
+        depth: Optional[int] = None
+        if depth_raw not in (None, ""):
+            try:
+                depth = int(depth_raw)
+            except (TypeError, ValueError):
+                return jsonify({"error": "invalid_depth"}), 400
+            if depth < 0:
+                return jsonify({"error": "invalid_depth"}), 400
+            # LinkScraper currently uses max_depth >= 1 for the initial URL fetch.
+            if depth == 0:
+                depth = 1
         if url:
             logger.info("Uploading the following URL: %s", url)
             try:
-                self.scraper_manager.collect_links(self.persistence, link_urls=[url])
+                scraped_count = self.scraper_manager.collect_links(self.persistence, link_urls=[url], max_depth=depth)
                 self.persistence.flush_index()
                 self._update_source_status("web", state="idle", last_run=self._now_iso())
                 added_to_urls = True
@@ -284,7 +296,7 @@ class FlaskAppWrapper:
             if added_to_urls:
                 logger.info("URL uploaded successfully")
                 self._notify_update()
-                return jsonify({"status": "ok"})
+                return jsonify({"status": "ok", "resources_scraped": scraped_count})
             else:
                 return jsonify({"error": "upload_failed", "detail": upload_error}), 500
         else:

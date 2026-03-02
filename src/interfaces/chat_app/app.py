@@ -4031,14 +4031,25 @@ class FlaskAppWrapper(object):
         try:
             data = request.json or {}
             url = data.get("url", "").strip()
+            depth = data.get("depth", None)
 
             if not url:
                 return jsonify({"error": "missing_url"}), 400
+            if depth is not None:
+                try:
+                    depth = int(depth)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "invalid_depth"}), 400
+                if depth < 0:
+                    return jsonify({"error": "invalid_depth"}), 400
 
             # Proxy to data-manager service
+            dm_payload = {"url": url}
+            if depth is not None:
+                dm_payload["depth"] = str(depth)
             resp = requests.post(
                 f"{self.data_manager_url}/document_index/upload_url",
-                data={"url": url},
+                data=dm_payload,
                 headers=self._dm_headers,
                 timeout=300,
                 allow_redirects=False,
@@ -4062,7 +4073,7 @@ class FlaskAppWrapper(object):
                 return jsonify({
                     "success": True,
                     "url": url,
-                    "resources_scraped": 1
+                    "resources_scraped": dm_data.get("resources_scraped", 1)
                 }), 200
             else:
                 return jsonify({
@@ -4736,6 +4747,25 @@ class FlaskAppWrapper(object):
         """
         try:
             schedules = self.config_service.get_source_schedules()
+            jobs_by_source = {}
+
+            # Best-effort enrich with scheduler runtime metadata from data-manager.
+            try:
+                dm_response = requests.get(
+                    f"{self.data_manager_url}/api/schedules",
+                    headers=self._dm_headers,
+                    timeout=10,
+                    allow_redirects=False,
+                )
+                if dm_response.ok and not dm_response.is_redirect:
+                    jobs = (dm_response.json() or {}).get("jobs", [])
+                    jobs_by_source = {
+                        (job.get("name") or ""): job
+                        for job in jobs
+                        if isinstance(job, dict)
+                    }
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Could not fetch scheduler runtime status from data-manager: {e}")
             
             # Convert cron expressions to UI-friendly values
             schedule_display = {}
@@ -4747,9 +4777,12 @@ class FlaskAppWrapper(object):
             }
             
             for source, cron in schedules.items():
+                runtime = jobs_by_source.get(source, {})
                 schedule_display[source] = {
                     'cron': cron,
                     'display': cron_to_ui.get(cron, 'custom'),
+                    'next_run': runtime.get('next_run'),
+                    'last_run': runtime.get('last_run'),
                 }
             
             return jsonify({"schedules": schedule_display}), 200
