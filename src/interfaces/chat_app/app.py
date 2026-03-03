@@ -2412,7 +2412,7 @@ class FlaskAppWrapper(object):
             sso_user_id = user_info.get('sub', '')
             if sso_user_id:
                 try:
-                    user_service = UserService(connection_params=self.pg_config)
+                    user_service = UserService(pg_config=self.pg_config)
                     user_service.get_or_create_user(
                         user_id=sso_user_id,
                         auth_provider='sso',
