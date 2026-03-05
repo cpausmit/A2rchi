@@ -44,7 +44,8 @@ SELECT c.sender,
        c.content,
        c.message_id,
        lf.feedback,
-       COALESCE(cf.comment_count, 0) AS comment_count
+       COALESCE(cf.comment_count, 0) AS comment_count,
+       c.model_used
 FROM conversations c
 LEFT JOIN (
     SELECT DISTINCT ON (mid)
