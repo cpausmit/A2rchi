@@ -90,9 +90,9 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
 
 SQL_CREATE_CONVERSATION = """
 INSERT INTO conversation_metadata (
-    title, created_at, last_message_at, client_id, archi_version
+    title, created_at, last_message_at, client_id, archi_version, user_id
 )
-VALUES (%s, %s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s)
 RETURNING conversation_id;
 """
 
