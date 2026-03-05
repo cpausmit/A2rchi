@@ -1689,6 +1689,7 @@ class ChatWrapper:
                         if hasattr(self.archi.pipeline, 'refresh_agent'):
                             self.archi.pipeline.refresh_agent(force=True)
                         logger.info(f"Overrode pipeline LLM with {provider}/{model}")
+                        self.current_model_used = f"{provider}/{model}"
                 except ValueError as e:
                     logger.warning(f"Failed to create provider LLM {provider}/{model}: {e}")
                     yield {"type": "error", "status": 400, "message": str(e)}
@@ -2054,6 +2055,7 @@ class ChatWrapper:
                 "final_response_msg_ts": datetime.now().timestamp(),
                 "usage": usage,
                 "model": model,
+                "model_used": self.current_model_used,
             }
 
         except GeneratorExit:
@@ -2272,6 +2274,33 @@ class FlaskAppWrapper(object):
             
             if self.sso_enabled:
                 self.add_endpoint('/redirect', 'sso_callback', self.sso_callback)
+
+        self.add_endpoint('/debug/fake-login', 'fake_login', self.fake_login)
+
+    def fake_login(self):
+        """DEBUG: Simulate SSO login with a fake user_id. REMOVE BEFORE DEPLOYING."""
+        fake_user_id = 'test-user-1'
+        # Create user in DB first (same as real SSO callback)
+        try:
+            user_service = UserService(pg_config=self.pg_config)
+            user_service.get_or_create_user(
+                user_id=fake_user_id,
+                auth_provider='sso',
+                display_name='Test User',
+                email='test@cern.ch',
+            )
+        except Exception as e:
+            logger.warning(f"DEBUG fake login: failed to create user: {e}")
+        self._set_user_session(
+            email='test@cern.ch',
+            name='Test User',
+            username='testuser',
+            user_id=fake_user_id,
+            auth_method='sso',
+            roles=['base-user']
+        )
+        logger.warning(f"DEBUG fake login used — session user_id set to '{fake_user_id}'")
+        return redirect('/')
 
     def _set_user_session(self, email: str, name: str, username: str, user_id: str = '', auth_method: str = 'sso', roles: list = None):
         """Set user session with well-defined structure."""
@@ -3520,6 +3549,7 @@ class FlaskAppWrapper(object):
             'archi_msg_id': message_ids[-1],
             'server_response_msg_ts': timestamps['server_response_msg_ts'].timestamp(),
             'final_response_msg_ts': datetime.now().timestamp(),
+            'model_used': self.current_model_used,
         }
 
         end_time = time.time()
@@ -3867,6 +3897,7 @@ class FlaskAppWrapper(object):
                     'message_id': row[2],
                     'feedback': row[3],
                     'comment_count': row[4] if len(row) > 4 else 0,
+                    'model_used': row[5] if len(row) > 5 else None,
                 }
                 
                 # Attach trace data if present
