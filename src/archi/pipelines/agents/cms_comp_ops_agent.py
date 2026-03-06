@@ -79,9 +79,11 @@ class CMSCompOpsAgent(BaseReActAgent):
             logger.info("MONIT_GRAFANA_TOKEN not found; MONIT OpenSearch tools not available")
             return
 
-        monit_cfg = self._chat_app_config.get("tools", {}).get("monit", {})
+        tools_cfg = self._chat_app_config.get("tools", {})
+        monit_cfg = tools_cfg.get("monit", {})
 
         # --- Rucio source ------------------------------------------------
+        # Supports: tools.monit.rucio.url, tools.monit.url (legacy)
         rucio_url = (
             monit_cfg.get("rucio", {}).get("url")
             or monit_cfg.get("url")  # backward compat
@@ -100,7 +102,11 @@ class CMSCompOpsAgent(BaseReActAgent):
             )
 
         # --- Condor source ------------------------------------------------
-        condor_url = monit_cfg.get("condor", {}).get("url")
+        # Supports: tools.condor.url or tools.monit.condor.url
+        condor_url = (
+            tools_cfg.get("condor", {}).get("url")
+            or monit_cfg.get("condor", {}).get("url")
+        )
         if condor_url:
             try:
                 self._condor_client = MONITOpenSearchClient(url=condor_url, token=monit_token)
@@ -110,7 +116,7 @@ class CMSCompOpsAgent(BaseReActAgent):
                 logger.warning("Failed to initialize MONIT condor client: %s", e)
         else:
             logger.info(
-                "No MONIT condor URL configured in services.chat_app.tools.monit.condor.url; "
+                "No MONIT condor URL configured in services.chat_app.tools; "
                 "condor OpenSearch tools not available"
             )
 
