@@ -13,6 +13,8 @@ import psycopg2
 from flask import Blueprint, jsonify, render_template, request, session
 
 from src.utils.logging import get_logger
+from src.utils.rbac.permission_enum import Permission
+from src.utils.rbac.permissions import has_permission
 from src.utils.sql import (
     SQL_DELETE_ALERT,
     SQL_INSERT_ALERT,
@@ -42,8 +44,10 @@ def is_alert_manager() -> bool:
 
     Rules (evaluated in order):
     1. Auth disabled -> everyone may manage.
-    2. Auth enabled, managers list present -> username must be in the list.
-    3. Auth enabled, managers list absent/empty -> no one may manage (safe default).
+    2. Auth enabled -> user is a manager if EITHER:
+       a. Their username is in the ``alerts.managers`` list, OR
+       b. Their session roles grant the ``alerts:manage`` permission.
+    3. Auth enabled, no username match, no permission -> denied (safe default).
     """
     if not _auth_enabled:
         return True
@@ -52,14 +56,18 @@ def is_alert_manager() -> bool:
         .get('alerts', {})
         .get('managers', [])
     )
+    username = (session.get('user') or {}).get('username', '')
+    if username and username in managers:
+        return True
+    if has_permission(Permission.Alerts.MANAGE):
+        return True
     if not managers:
         logger.warning(
-            "Alert managers list is not configured or empty, "
-            "no users will have permissions to manage alerts"
+            "Alert managers list is not configured or empty and user lacks "
+            "alerts:manage permission — no users will have permissions to "
+            "manage alerts"
         )
-        return False
-    username = (session.get('user') or {}).get('username', '')
-    return username in managers
+    return False
 
 
 def get_active_banner_alerts() -> list:
