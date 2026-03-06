@@ -1040,7 +1040,7 @@ class ChatWrapper:
             conn.close()
 
 
-    def query_conversation_history(self, conversation_id, client_id):
+    def query_conversation_history(self, conversation_id, client_id, user_id: Optional[str] = None):
         """
         Return the conversation history as an ordered list of tuples. The order
         is determined by ascending message_id. Each tuple contains the sender and
@@ -1050,8 +1050,11 @@ class ChatWrapper:
         conn = psycopg2.connect(**self.pg_config)
         cursor = conn.cursor()
 
-        # ensure conversation belongs to client before querying
-        cursor.execute(SQL_GET_CONVERSATION_METADATA, (conversation_id, client_id))
+        # ensure conversation belongs to user/client before querying
+        if user_id:
+            cursor.execute(SQL_GET_CONVERSATION_METADATA_BY_USER, (conversation_id, user_id))
+        else:
+            cursor.execute(SQL_GET_CONVERSATION_METADATA, (conversation_id, client_id))
         metadata = cursor.fetchone()
         if metadata is None:
             cursor.close()
@@ -1347,7 +1350,7 @@ class ChatWrapper:
             conversation_id = self.create_conversation(content, client_id, user_id)
             history = []
         else:
-            history = self.query_conversation_history(conversation_id, client_id)
+            history = self.query_conversation_history(conversation_id, client_id, user_id)
             self.update_conversation_timestamp(conversation_id, client_id, user_id)
 
         timestamps["query_convo_history_ts"] = datetime.now()
