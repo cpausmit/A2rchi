@@ -59,12 +59,7 @@ class CMSCompOpsAgent(BaseReActAgent):
     def _init_monit(self) -> None:
         """Initialize MONIT OpenSearch clients if credentials and config are available.
 
-        Supports two config layouts for the MONIT URL(s)::
-
-            # Legacy (single URL for rucio)
-            tools:
-              monit:
-                url: "https://...proxy/9269/_msearch"
+        Supports the following config layout for the MONIT URL(s)::
 
             # Per-source URLs (rucio + condor, etc.)
             tools:
@@ -82,8 +77,7 @@ class CMSCompOpsAgent(BaseReActAgent):
         tools_cfg = self._chat_app_config.get("tools", {})
         monit_cfg = tools_cfg.get("monit", {})
 
-        # --- Rucio source ------------------------------------------------
-        # Supports: tools.monit.rucio.url, tools.monit.url (legacy)
+        # Rucio source
         rucio_url = (
             monit_cfg.get("rucio", {}).get("url")
             or monit_cfg.get("url")  # backward compat
@@ -101,8 +95,7 @@ class CMSCompOpsAgent(BaseReActAgent):
                 "rucio OpenSearch tools not available"
             )
 
-        # --- Condor source ------------------------------------------------
-        # Supports: tools.condor.url or tools.monit.condor.url
+        # Condor source
         condor_url = (
             tools_cfg.get("condor", {}).get("url")
             or monit_cfg.get("condor", {}).get("url")
