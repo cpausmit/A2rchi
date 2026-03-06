@@ -54,8 +54,8 @@ def is_alert_manager() -> bool:
     managers = (
         _chat_app_config
         .get('alerts', {})
-        .get('managers', [])
-    )
+        .get('managers')
+    ) or []
     username = (session.get('user') or {}).get('username', '')
     if username and username in managers:
         return True
