@@ -170,8 +170,6 @@ def get_provider_by_name(name: str, **kwargs) -> BaseProvider:
         "ollama": ProviderType.LOCAL,
         "vllm": ProviderType.LOCAL,
         "cern_litellm": ProviderType.CERN_LITELLM,
-        "cern": ProviderType.CERN_LITELLM,
-        "litellm": ProviderType.CERN_LITELLM,
     }
     
     provider_type = name_map.get(name_lower)
