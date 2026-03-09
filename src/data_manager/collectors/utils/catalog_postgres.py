@@ -698,6 +698,8 @@ class PostgresCatalogService:
                 "size_bytes": row["size_bytes"],
                 "suffix": row["suffix"],
                 "ingested_at": row["ingested_at"].isoformat() if row["ingested_at"] else None,
+                "indexed_at": row["indexed_at"].isoformat() if row.get("indexed_at") else None,
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
                 "ingestion_status": row.get("ingestion_status", "pending"),
                 "ingestion_error": row.get("ingestion_error"),
                 "enabled": bool(row.get("enabled", True)),

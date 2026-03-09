@@ -61,6 +61,7 @@ from src.utils.sql import (
 )
 from src.interfaces.chat_app.document_utils import *
 from src.interfaces.chat_app.utils import collapse_assistant_sequences
+from src.utils.user_service import UserService
 
 # RBAC imports for role-based access control
 from src.utils.rbac import (
@@ -1066,7 +1067,7 @@ class ChatWrapper:
 
         return history
 
-    def create_conversation(self, first_message: str, client_id: str) -> int:
+    def create_conversation(self, first_message: str, client_id: str, user_id: Optional[str] = None) -> int:
         """
         Gets first message (activates a new conversation), and generates a title w/ first msg.
         (TODO: commercial ones use one-sentence summarizer to make the title)
@@ -1080,8 +1081,8 @@ class ChatWrapper:
         
         version = os.getenv("APP_VERSION", "unknown")
 
-        # title, created_at, last_message_at, version
-        insert_tup = (title, now, now, client_id, version)
+        # title, created_at, last_message_at, client_id, version, user_id
+        insert_tup = (title, now, now, client_id, version, user_id)
 
         # create connection to database (use local vars for thread safety)
         conn = psycopg2.connect(**self.pg_config)
@@ -1331,13 +1332,14 @@ class ChatWrapper:
         client_sent_msg_ts: float,
         client_timeout: float,
         timestamps: Dict[str, datetime],
+        user_id: Optional[str] = None,
     ) -> tuple[Optional[ChatRequestContext], Optional[int]]:
         if not client_id:
             raise ValueError("client_id is required to process chat messages")
         sender, content = tuple(message[0])
 
         if conversation_id is None:
-            conversation_id = self.create_conversation(content, client_id)
+            conversation_id = self.create_conversation(content, client_id, user_id)
             history = []
         else:
             history = self.query_conversation_history(conversation_id, client_id)
@@ -1522,7 +1524,7 @@ class ChatWrapper:
 
         return output, message_ids
 
-    def __call__(self, message: List[str], conversation_id: int|None, client_id: str, is_refresh: bool, server_received_msg_ts: datetime,  client_sent_msg_ts: float, client_timeout: float, config_name: str):
+    def __call__(self, message: List[str], conversation_id: int|None, client_id: str, is_refresh: bool, server_received_msg_ts: datetime,  client_sent_msg_ts: float, client_timeout: float, config_name: str, user_id: Optional[str] = None):
         """
         Execute the chat functionality.
         """
@@ -1541,6 +1543,7 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                user_id=user_id,
             )
             if error_code is not None:
                 return None, None, None, timestamps, error_code
@@ -1597,6 +1600,7 @@ class ChatWrapper:
         provider: str = None,
         model: str = None,
         provider_api_key: str = None,
+        user_id: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         timestamps = self._init_timestamps()
         context = None
@@ -1655,6 +1659,7 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                user_id=user_id,
             )
             if error_code is not None:
                 error_message = "server error; see chat logs for message"
@@ -2402,12 +2407,27 @@ class FlaskAppWrapper(object):
             # This handles role validation and default role assignment
             user_roles = get_user_roles(token, user_email)
             
+            # Upsert the SSO user into the users table so that conversation_metadata
+            # can reference user_id via the FK constraint.
+            sso_user_id = user_info.get('sub', '')
+            if sso_user_id:
+                try:
+                    user_service = UserService(pg_config=self.pg_config)
+                    user_service.get_or_create_user(
+                        user_id=sso_user_id,
+                        auth_provider='sso',
+                        display_name=user_info.get('name', user_info.get('preferred_username', '')),
+                        email=user_info.get('email', ''),
+                    )
+                except Exception as ue:
+                    logger.warning(f"Failed to upsert SSO user {sso_user_id} into users table: {ue}")
+
             # Store user information in session (normalized structure)
             self._set_user_session(
                 email=user_info.get('email', ''),
                 name=user_info.get('name', user_info.get('preferred_username', '')),
                 username=user_info.get('preferred_username', user_info.get('email', '')),
-                user_id=user_info.get('sub', ''),
+                user_id=sso_user_id,
                 auth_method='sso',
                 roles=user_roles
             )
@@ -3456,9 +3476,11 @@ class FlaskAppWrapper(object):
         if not client_id:
             return jsonify({'error': 'client_id missing'}), 400
 
+        user_id = session.get('user', {}).get('id') or None
+
         # query the chat and return the results.
         logger.debug("Calling the ChatWrapper()")
-        response, conversation_id, message_ids, timestamps, error_code = self.chat(message, conversation_id, client_id, is_refresh, server_received_msg_ts, client_sent_msg_ts, client_timeout,config_name)
+        response, conversation_id, message_ids, timestamps, error_code = self.chat(message, conversation_id, client_id, is_refresh, server_received_msg_ts, client_sent_msg_ts, client_timeout,config_name, user_id=user_id)
 
         # handle errors
         if error_code is not None:
@@ -3522,6 +3544,8 @@ class FlaskAppWrapper(object):
         if not client_id:
             return jsonify({"error": "client_id missing"}), 400
 
+        user_id = session.get('user', {}).get('id') or None
+
         # Get API key from session if available
         session_api_key = None
         if provider and 'provider_api_keys' in session:
@@ -3544,6 +3568,7 @@ class FlaskAppWrapper(object):
                 provider=provider,
                 model=model,
                 provider_api_key=session_api_key,
+                user_id=user_id,
             ):
                 yield json.dumps(event, default=str) + "\n"
 
@@ -4474,14 +4499,25 @@ class FlaskAppWrapper(object):
         try:
             data = request.json or {}
             url = data.get("url", "").strip()
+            depth = data.get("depth", None)
 
             if not url:
                 return jsonify({"error": "missing_url"}), 400
+            if depth is not None:
+                try:
+                    depth = int(depth)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "invalid_depth"}), 400
+                if depth < 0:
+                    return jsonify({"error": "invalid_depth"}), 400
 
             # Proxy to data-manager service
+            dm_payload = {"url": url}
+            if depth is not None:
+                dm_payload["depth"] = str(depth)
             resp = requests.post(
                 f"{self.data_manager_url}/document_index/upload_url",
-                data={"url": url},
+                data=dm_payload,
                 headers=self._dm_headers,
                 timeout=300,
                 allow_redirects=False,
@@ -4505,7 +4541,7 @@ class FlaskAppWrapper(object):
                 return jsonify({
                     "success": True,
                     "url": url,
-                    "resources_scraped": 1
+                    "resources_scraped": dm_data.get("resources_scraped", 1)
                 }), 200
             else:
                 return jsonify({
@@ -5071,24 +5107,40 @@ class FlaskAppWrapper(object):
             sources = []
             seen_projects = set()
 
-            result = self.chat.data_viewer.list_documents(source_type='jira', limit=1000)
+            result = self.chat.data_viewer.list_documents(source_type='ticket', limit=1000)
+
             for doc in result.get('documents', []):
                 # Parse project key from display name or URL
                 display_name = doc.get('display_name', '')
+                url = doc.get('url', '')
                 # Jira documents often have display_name like "PROJECT-123: Title"
                 if display_name:
                     project_key = display_name.split('-')[0] if '-' in display_name else display_name
                     if project_key and project_key not in seen_projects:
                         seen_projects.add(project_key)
+                        logger.debug(f"Adding project key: {project_key}, display_name: {display_name}")
                         sources.append({
-                            'project_key': project_key,
-                            'name': project_key,
+                            'key': project_key,
+                            'name': url.split('-')[0] if '-' in url else url,
                         })
+
+            for project in sources:
+                project_key = project['key']
+                
+                ticket_count = sum(1 for doc in result.get('documents', []) if doc.get('display_name', '').startswith(project_key + '-'))
+                project['ticket_count'] = ticket_count if ticket_count else 0
+                
+                last_sync = max((doc.get('ingested_at')
+                                for doc in result.get('documents', [])
+                                if project_key in doc.get('display_name', '') and doc.get('ingested_at') is not None),
+                                default=None)
+                
+                project['last_sync'] = last_sync if last_sync else None
 
             return jsonify({"sources": sources}), 200
 
         except Exception as e:
-            logger.error(f"Error listing Jira sources: {str(e)}")
+            logger.error(f"Error listing Jira sources: {str(e)}",exc_info=True)
             return jsonify({"error": str(e)}), 500
 
     def _delete_jira_project(self):
@@ -5163,6 +5215,25 @@ class FlaskAppWrapper(object):
         """
         try:
             schedules = self.config_service.get_source_schedules()
+            jobs_by_source = {}
+
+            # Best-effort enrich with scheduler runtime metadata from data-manager.
+            try:
+                dm_response = requests.get(
+                    f"{self.data_manager_url}/api/schedules",
+                    headers=self._dm_headers,
+                    timeout=10,
+                    allow_redirects=False,
+                )
+                if dm_response.ok and not dm_response.is_redirect:
+                    jobs = (dm_response.json() or {}).get("jobs", [])
+                    jobs_by_source = {
+                        (job.get("name") or ""): job
+                        for job in jobs
+                        if isinstance(job, dict)
+                    }
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Could not fetch scheduler runtime status from data-manager: {e}")
             
             # Convert cron expressions to UI-friendly values
             schedule_display = {}
@@ -5174,9 +5245,12 @@ class FlaskAppWrapper(object):
             }
             
             for source, cron in schedules.items():
+                runtime = jobs_by_source.get(source, {})
                 schedule_display[source] = {
                     'cron': cron,
                     'display': cron_to_ui.get(cron, 'custom'),
+                    'next_run': runtime.get('next_run'),
+                    'last_run': runtime.get('last_run'),
                 }
             
             return jsonify({"schedules": schedule_display}), 200
