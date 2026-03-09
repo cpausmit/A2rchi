@@ -21,8 +21,6 @@ from langchain_core.documents import Document
 
 from src.data_manager.vectorstore.loader_utils import load_doc_from_path
 from src.utils.logging import get_logger
-from src.utils.time_utils import utc_iso
-
 logger = get_logger(__name__)
 
 DEFAULT_TEXT_EXTENSIONS = {
@@ -589,7 +587,7 @@ class PostgresCatalogService:
                 # Last sync
                 cur.execute("SELECT MAX(ingested_at) as last_sync FROM documents WHERE NOT is_deleted")
                 last_row = cur.fetchone()
-                last_sync = utc_iso(last_row["last_sync"]) if last_row else None
+                last_sync = last_row["last_sync"].isoformat() if last_row and last_row["last_sync"] else None
 
                 # Disabled count for conversation
                 disabled_count = 0
@@ -698,9 +696,9 @@ class PostgresCatalogService:
                 "url": row["url"],
                 "size_bytes": row["size_bytes"],
                 "suffix": row["suffix"],
-                "ingested_at": utc_iso(row["ingested_at"]),
-                "indexed_at": utc_iso(row.get("indexed_at")),
-                "created_at": utc_iso(row.get("created_at")),
+                "ingested_at": row["ingested_at"].isoformat() if row["ingested_at"] else None,
+                "indexed_at": row.get("indexed_at").isoformat() if row.get("indexed_at") else None,
+                "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
                 "ingestion_status": row.get("ingestion_status", "pending"),
                 "ingestion_error": row.get("ingestion_error"),
                 "enabled": bool(row.get("enabled", True)),
@@ -938,9 +936,9 @@ class PostgresCatalogService:
             "size_bytes": row["size_bytes"],
             "ingestion_status": row["ingestion_status"],
             "ingestion_error": row["ingestion_error"],
-            "ingested_at": utc_iso(row["ingested_at"]),
-            "indexed_at": utc_iso(row["indexed_at"]),
-            "created_at": utc_iso(row["created_at"]),
+            "ingested_at": row["ingested_at"].isoformat() if row["ingested_at"] else None,
+            "indexed_at": row["indexed_at"].isoformat() if row["indexed_at"] else None,
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         }
 
     def list_documents_with_status(
@@ -1027,9 +1025,9 @@ class PostgresCatalogService:
                 "size_bytes": row["size_bytes"],
                 "ingestion_status": row["ingestion_status"],
                 "ingestion_error": row["ingestion_error"],
-                "ingested_at": utc_iso(row["ingested_at"]),
-                "indexed_at": utc_iso(row["indexed_at"]),
-                "created_at": utc_iso(row["created_at"]),
+                "ingested_at": row["ingested_at"].isoformat() if row["ingested_at"] else None,
+                "indexed_at": row["indexed_at"].isoformat() if row["indexed_at"] else None,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
             })
 
         return {

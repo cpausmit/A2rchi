@@ -18,7 +18,6 @@ from flask import Blueprint, jsonify, request, g, current_app
 from src.utils.postgres_service_factory import PostgresServiceFactory
 from src.utils.env import read_secret
 from src.utils.logging import get_logger
-from src.utils.time_utils import utc_iso
 from src.utils.config_access import get_full_config
 from src.archi.pipelines.agents.agent_spec import AgentSpecError, load_agent_spec
 
@@ -182,7 +181,7 @@ def get_current_user():
             'has_openrouter_key': user.api_key_openrouter is not None,
             'has_openai_key': user.api_key_openai is not None,
             'has_anthropic_key': user.api_key_anthropic is not None,
-            'created_at': utc_iso(user.created_at),
+            'created_at': user.created_at.isoformat() if user.created_at else None,
         }), 200
         
     except Exception as e:
@@ -232,7 +231,7 @@ def update_user_preferences():
             'theme': user.theme,
             'preferred_model': user.preferred_model,
             'preferred_temperature': float(user.preferred_temperature) if user.preferred_temperature else None,
-            'updated_at': utc_iso(user.updated_at),
+            'updated_at': user.updated_at.isoformat() if user.updated_at else None,
         }), 200
         
     except Exception as e:

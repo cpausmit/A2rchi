@@ -46,7 +46,6 @@ from src.data_manager.data_viewer_service import DataViewerService
 from src.data_manager.vectorstore.manager import VectorStoreManager
 from src.utils.env import read_secret
 from src.utils.logging import get_logger
-from src.utils.time_utils import utc_iso
 from src.utils.config_access import get_full_config, get_services_config, get_global_config, get_dynamic_config
 from src.utils.config_service import ConfigService
 from src.utils.sql import (
@@ -759,8 +758,8 @@ class ChatWrapper:
                 'config_b_id': row[6],
                 'is_config_a_first': row[7],
                 'preference': row[8],
-                'preference_ts': utc_iso(row[9]),
-                'created_at': utc_iso(row[10]),
+                'preference_ts': row[9].isoformat() if row[9] else None,
+                'created_at': row[10].isoformat() if row[10] else None,
             }
         finally:
             cursor.close()
@@ -790,8 +789,8 @@ class ChatWrapper:
                 'config_b_id': row[6],
                 'is_config_a_first': row[7],
                 'preference': row[8],
-                'preference_ts': utc_iso(row[9]),
-                'created_at': utc_iso(row[10]),
+                'preference_ts': row[9].isoformat() if row[9] else None,
+                'created_at': row[10].isoformat() if row[10] else None,
             }
         finally:
             cursor.close()
@@ -840,8 +839,8 @@ class ChatWrapper:
                     'config_b_id': row[6],
                     'is_config_a_first': row[7],
                     'preference': row[8],
-                    'preference_ts': utc_iso(row[9]),
-                    'created_at': utc_iso(row[10]),
+                    'preference_ts': row[9].isoformat() if row[9] else None,
+                    'created_at': row[10].isoformat() if row[10] else None,
                 }
                 for row in rows
             ]
@@ -937,15 +936,15 @@ class ChatWrapper:
                 'config_id': row[4],
                 'pipeline_name': row[5],
                 'events': row[6],  # Already JSON from JSONB
-                'started_at': utc_iso(row[7]),
-                'completed_at': utc_iso(row[8]),
+                'started_at': row[7].isoformat() if row[7] else None,
+                'completed_at': row[8].isoformat() if row[8] else None,
                 'status': row[9],
                 'total_tool_calls': row[10],
                 'total_tokens_used': row[11],
                 'total_duration_ms': row[12],
                 'cancelled_by': row[13],
                 'cancellation_reason': row[14],
-                'created_at': utc_iso(row[15]),
+                'created_at': row[15].isoformat() if row[15] else None,
             }
         finally:
             cursor.close()
@@ -970,15 +969,15 @@ class ChatWrapper:
                 'config_id': row[4],
                 'pipeline_name': row[5],
                 'events': row[6],
-                'started_at': utc_iso(row[7]),
-                'completed_at': utc_iso(row[8]),
+                'started_at': row[7].isoformat() if row[7] else None,
+                'completed_at': row[8].isoformat() if row[8] else None,
                 'status': row[9],
                 'total_tool_calls': row[10],
                 'total_tokens_used': row[11],
                 'total_duration_ms': row[12],
                 'cancelled_by': row[13],
                 'cancellation_reason': row[14],
-                'created_at': utc_iso(row[15]),
+                'created_at': row[15].isoformat() if row[15] else None,
             }
         finally:
             cursor.close()
@@ -1003,7 +1002,7 @@ class ChatWrapper:
                 'config_id': row[4],
                 'pipeline_name': row[5],
                 'events': row[6],
-                'started_at': utc_iso(row[7]),
+                'started_at': row[7].isoformat() if row[7] else None,
                 'status': row[8],
             }
         finally:
@@ -3774,8 +3773,8 @@ class FlaskAppWrapper(object):
                 conversations.append({
                     'conversation_id': row[0],
                     'title': row[1] or "New Chat",
-                    'created_at': utc_iso(row[2]),
-                    'last_message_at': utc_iso(row[3]),
+                    'created_at': row[2].isoformat() if row[2] else None,
+                    'last_message_at': row[3].isoformat() if row[3] else None,
                 })
 
             # clean up database connection state
@@ -3873,8 +3872,8 @@ class FlaskAppWrapper(object):
             conversation = {
                 'conversation_id': meta_row[0],
                 'title': meta_row[1] or "New Conversation",
-                'created_at': utc_iso(meta_row[2]),
-                'last_message_at': utc_iso(meta_row[3]),
+                'created_at': meta_row[2].isoformat() if meta_row[2] else None,
+                'last_message_at': meta_row[3].isoformat() if meta_row[3] else None,
                 'messages': messages
             }
 
@@ -5085,7 +5084,7 @@ class FlaskAppWrapper(object):
                         'name': name,
                         'url': repo_url,
                         'file_count': row['file_count'],
-                        'last_updated': utc_iso(row['last_updated'])
+                        'last_updated': row['last_updated'].isoformat() if row['last_updated'] else None
                     })
 
             return jsonify({"sources": sources}), 200
