@@ -122,21 +122,34 @@ curl -X POST http://localhost:7861/api/ssb/alerts \
 
 ### Access Control
 
-Alert managers are configured via `services.chat_app.alerts.managers`. The rules are:
+Alert managers are configured via `services.chat_app.alerts.managers` (username list) or the `alerts:manage` RBAC permission. The rules are:
 
 1. **Auth disabled** → everyone may create and delete alerts.
-2. **Auth enabled, managers list present** → only the listed usernames may manage.
-3. **Auth enabled, managers list absent or empty** → nobody may manage (safe default; a warning is logged).
+2. **Auth enabled** → a user is an alert manager if **either**:
+    - their username is in the `alerts.managers` list, **or**
+    - their session roles grant the `alerts:manage` permission.
+3. **Auth enabled, no username match, no `alerts:manage` permission** → nobody may manage (safe default; a warning is logged).
 
 All users can always *view* alerts and the status board regardless of access level.
 
 ```yaml
+# Username-based access (backwards compatible):
 services:
   chat_app:
     alerts:
       managers:
         - alice
         - bob
+
+# Role-based access (can be combined with the above):
+services:
+  chat_app:
+    auth:
+      auth_roles:
+        roles:
+          ops-team:
+            permissions:
+              - alerts:manage
 ```
 
 See [Configuration → `services.chat_app.alerts`](configuration.md#serviceschat_appalerts) for the full reference.
