@@ -132,10 +132,12 @@ WHERE conversation_id = %s AND client_id = %s;
 """
 
 # User-ID-based variants (used when the user is authenticated)
+# Each query also falls back to client_id so that conversations created before
+# user_id was populated remain accessible.
 SQL_LIST_CONVERSATIONS_BY_USER = """
 SELECT conversation_id, title, created_at, last_message_at
 FROM conversation_metadata
-WHERE user_id = %s
+WHERE user_id = %s OR client_id = %s
 ORDER BY last_message_at DESC
 LIMIT %s;
 """
@@ -143,18 +145,18 @@ LIMIT %s;
 SQL_GET_CONVERSATION_METADATA_BY_USER = """
 SELECT conversation_id, title, created_at, last_message_at
 FROM conversation_metadata
-WHERE conversation_id = %s AND user_id = %s;
+WHERE conversation_id = %s AND (user_id = %s OR client_id = %s);
 """
 
 SQL_DELETE_CONVERSATION_BY_USER = """
 DELETE FROM conversation_metadata
-WHERE conversation_id = %s AND user_id = %s;
+WHERE conversation_id = %s AND (user_id = %s OR client_id = %s);
 """
 
 SQL_UPDATE_CONVERSATION_TIMESTAMP_BY_USER = """
 UPDATE conversation_metadata
 SET last_message_at = %s
-WHERE conversation_id = %s AND user_id = %s;
+WHERE conversation_id = %s AND (user_id = %s OR client_id = %s);
 """
 
 # =============================================================================

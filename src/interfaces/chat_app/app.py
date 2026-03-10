@@ -1052,7 +1052,7 @@ class ChatWrapper:
 
         # ensure conversation belongs to user/client before querying
         if user_id:
-            cursor.execute(SQL_GET_CONVERSATION_METADATA_BY_USER, (conversation_id, user_id))
+            cursor.execute(SQL_GET_CONVERSATION_METADATA_BY_USER, (conversation_id, user_id, client_id))
         else:
             cursor.execute(SQL_GET_CONVERSATION_METADATA, (conversation_id, client_id))
         metadata = cursor.fetchone()
@@ -1116,7 +1116,7 @@ class ChatWrapper:
 
         # update timestamp
         if user_id:
-            cursor.execute(SQL_UPDATE_CONVERSATION_TIMESTAMP_BY_USER, (now, conversation_id, user_id))
+            cursor.execute(SQL_UPDATE_CONVERSATION_TIMESTAMP_BY_USER, (now, conversation_id, user_id, client_id))
         else:
             cursor.execute(SQL_UPDATE_CONVERSATION_TIMESTAMP, (now, conversation_id, client_id))
         conn.commit()
@@ -3778,7 +3778,7 @@ class FlaskAppWrapper(object):
             conn = psycopg2.connect(**self.pg_config)
             cursor = conn.cursor()
             if user_id:
-                cursor.execute(SQL_LIST_CONVERSATIONS_BY_USER, (user_id, limit))
+                cursor.execute(SQL_LIST_CONVERSATIONS_BY_USER, (user_id, client_id, limit))
             else:
                 cursor.execute(SQL_LIST_CONVERSATIONS, (client_id, limit))
             rows = cursor.fetchall()
@@ -3831,7 +3831,7 @@ class FlaskAppWrapper(object):
 
             # get conversation metadata
             if user_id:
-                cursor.execute(SQL_GET_CONVERSATION_METADATA_BY_USER, (conversation_id, user_id))
+                cursor.execute(SQL_GET_CONVERSATION_METADATA_BY_USER, (conversation_id, user_id, client_id))
             else:
                 cursor.execute(SQL_GET_CONVERSATION_METADATA, (conversation_id, client_id))
             meta_row = cursor.fetchone()
@@ -3952,7 +3952,7 @@ class FlaskAppWrapper(object):
 
             # Delete conversation metadata (SQL CASCADE will delete all child messages)
             if user_id:
-                cursor.execute(SQL_DELETE_CONVERSATION_BY_USER, (conversation_id, user_id))
+                cursor.execute(SQL_DELETE_CONVERSATION_BY_USER, (conversation_id, user_id, client_id))
             else:
                 cursor.execute(SQL_DELETE_CONVERSATION, (conversation_id, client_id))
             deleted_count = cursor.rowcount
