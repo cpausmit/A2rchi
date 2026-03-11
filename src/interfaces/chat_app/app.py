@@ -5,7 +5,7 @@ import time
 import uuid
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, Iterator, List, Optional
 from pathlib import Path
@@ -62,6 +62,9 @@ from src.utils.sql import (
     SQL_GET_TRACE_BY_MESSAGE, SQL_GET_ACTIVE_TRACE, SQL_CANCEL_ACTIVE_TRACES,
 )
 from src.interfaces.chat_app.document_utils import *
+from src.interfaces.chat_app.service_alerts import (
+    register_service_alerts, get_active_banner_alerts, is_alert_manager,
+)
 from src.interfaces.chat_app.utils import collapse_assistant_sequences
 from src.utils.user_service import UserService
 
@@ -728,7 +731,7 @@ class ChatWrapper:
         try:
             cursor.execute(
                 SQL_UPDATE_AB_PREFERENCE,
-                (preference, datetime.now(), comparison_id)
+                (preference, datetime.now(timezone.utc), comparison_id)
             )
             conn.commit()
             logger.info(f"Updated A/B comparison {comparison_id} with preference '{preference}'")
@@ -1082,7 +1085,7 @@ class ChatWrapper:
         """
         service = "Chatbot"
         title = first_message[:20] + ("..." if len(first_message) > 20 else "")
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         
         version = os.getenv("APP_VERSION", "unknown")
 
@@ -1108,7 +1111,7 @@ class ChatWrapper:
         Update the last_message_at timestamp for a conversation.
         last_message_at is used to reorder conversations in the UI (on vertical sidebar).
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # create connection to database (use local vars for thread safety)
         conn = psycopg2.connect(**self.pg_config)
@@ -1247,9 +1250,9 @@ class ChatWrapper:
                     try:
                         ts = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                     except (ValueError, TypeError):
-                        ts = datetime.now()
+                        ts = datetime.now(timezone.utc)
                 else:
-                    ts = datetime.now()
+                    ts = datetime.now(timezone.utc)
 
                 for tc in msg.tool_calls:
                     tool_call_id = tc.get("id", "")
@@ -1266,7 +1269,7 @@ class ChatWrapper:
             tool_result = tc.get("result", "")
             if len(tool_result) > 500:
                 tool_result = tool_result[:500] + "..."
-            ts = tool_call_timestamps.get(tool_call_id, datetime.now())
+            ts = tool_call_timestamps.get(tool_call_id, datetime.now(timezone.utc))
 
             insert_tups.append((
                 conversation_id,
@@ -1290,8 +1293,8 @@ class ChatWrapper:
 
     def _init_timestamps(self) -> Dict[str, datetime]:
         return {
-            "lock_acquisition_ts": datetime.now(),
-            "vectorstore_update_ts": datetime.now(),
+            "lock_acquisition_ts": datetime.now(timezone.utc),
+            "vectorstore_update_ts": datetime.now(timezone.utc),
         }
 
     def _resolve_config_name(self, config_name: Optional[str]) -> str:
@@ -1353,7 +1356,7 @@ class ChatWrapper:
             history = self.query_conversation_history(conversation_id, client_id, user_id)
             self.update_conversation_timestamp(conversation_id, client_id, user_id)
 
-        timestamps["query_convo_history_ts"] = datetime.now()
+        timestamps["query_convo_history_ts"] = datetime.now(timezone.utc)
 
         if is_refresh:
             while history and history[-1][0] == ARCHI_SENDER:
@@ -1491,7 +1494,7 @@ class ChatWrapper:
         else:
             output += self.format_links_markdown(top_sources)
 
-        timestamps["archi_message_ts"] = datetime.now()
+        timestamps["archi_message_ts"] = datetime.now(timezone.utc)
         context_data = self.prepare_context_for_storage(documents, scores)
 
         best_reference = "Link unavailable"
@@ -1509,7 +1512,7 @@ class ChatWrapper:
             context_data,
             context.is_refresh,
         )
-        timestamps["insert_convo_ts"] = datetime.now()
+        timestamps["insert_convo_ts"] = datetime.now(timezone.utc)
         context.history.append((ARCHI_SENDER, result["answer"]))
 
         agent_messages = getattr(result, "messages", []) or []
@@ -1560,7 +1563,7 @@ class ChatWrapper:
             self.update_config(config_name=requested_config)
 
             result = self.archi(history=context.history, conversation_id=context.conversation_id)
-            timestamps["chain_finished_ts"] = datetime.now()
+            timestamps["chain_finished_ts"] = datetime.now(timezone.utc)
 
             # keep track of total number of queries and log this amount
             self.number_of_queries += 1
@@ -1587,7 +1590,7 @@ class ChatWrapper:
             if self.conn is not None:
                 self.conn.close()
 
-        timestamps['finish_call_ts'] = datetime.now()
+        timestamps['finish_call_ts'] = datetime.now(timezone.utc)
 
         return output, context.conversation_id if context else None, message_ids, timestamps, None
 
@@ -1965,7 +1968,7 @@ class ChatWrapper:
                                     "conversation_id": context.conversation_id,
                                 }
 
-            timestamps["chain_finished_ts"] = datetime.now()
+            timestamps["chain_finished_ts"] = datetime.now(timezone.utc)
 
             if last_output is None:
                 if trace_id:
@@ -2005,10 +2008,10 @@ class ChatWrapper:
                 render_markdown=False,  # Client renders with marked.js
             )
 
-            timestamps["finish_call_ts"] = datetime.now()
+            timestamps["finish_call_ts"] = datetime.now(timezone.utc)
             timestamps["server_received_msg_ts"] = server_received_msg_ts
-            timestamps["client_sent_msg_ts"] = datetime.fromtimestamp(client_sent_msg_ts)
-            timestamps["server_response_msg_ts"] = datetime.now()
+            timestamps["client_sent_msg_ts"] = datetime.fromtimestamp(client_sent_msg_ts, tz=timezone.utc)
+            timestamps["server_response_msg_ts"] = datetime.now(timezone.utc)
 
             if message_ids:
                 self.insert_timing(message_ids[-1], timestamps)
@@ -2055,7 +2058,7 @@ class ChatWrapper:
                 "user_message_id": message_ids[0] if message_ids and len(message_ids) > 1 else None,
                 "trace_id": trace_id,
                 "server_response_msg_ts": timestamps["server_response_msg_ts"].timestamp(),
-                "final_response_msg_ts": datetime.now().timestamp(),
+                "final_response_msg_ts": datetime.now(timezone.utc).timestamp(),
                 "usage": usage,
                 "model": model,
                 "model_used": self.current_model_used,
@@ -2174,6 +2177,17 @@ class FlaskAppWrapper(object):
         # enable CORS:
         CORS(self.app)
 
+        # inject active alerts into every template context
+        @self.app.context_processor
+        def _inject_alerts():
+            if not session.get('logged_in'):
+                return dict(active_banner_alerts=[], is_alert_manager=False)
+            alerts = get_active_banner_alerts()
+            return dict(
+                active_banner_alerts=alerts,
+                is_alert_manager=is_alert_manager(),
+            )
+
         # add endpoints for flask app
         # Public endpoints (no auth required)
         self.add_endpoint('/', 'landing', self.landing)
@@ -2264,6 +2278,16 @@ class FlaskAppWrapper(object):
         self.add_endpoint('/admin/database', 'database_viewer_page', self.require_perm(Permission.Admin.DATABASE)(self.database_viewer_page))
         self.add_endpoint('/api/admin/database/tables', 'list_database_tables', self.require_perm(Permission.Admin.DATABASE)(self.list_database_tables), methods=["GET"])
         self.add_endpoint('/api/admin/database/query', 'run_database_query', self.require_perm(Permission.Admin.DATABASE)(self.run_database_query), methods=["POST"])
+
+        # Service status board endpoints (registered via Blueprint)
+        logger.info("Adding service status board endpoints")
+        register_service_alerts(
+            self.app,
+            pg_config=self.pg_config,
+            auth_enabled=self.auth_enabled,
+            chat_app_config=self.chat_app_config,
+            require_auth=self.require_auth,
+        )
 
         # add unified auth endpoints
         if self.auth_enabled:
@@ -3471,7 +3495,7 @@ class FlaskAppWrapper(object):
         """
         # compute timestamp at which message was received by server
         start_time = time.time()
-        server_received_msg_ts = datetime.now()
+        server_received_msg_ts = datetime.now(timezone.utc)
 
         # get user input and conversation_id from the request
         request_data = self._parse_chat_request()
@@ -3503,11 +3527,11 @@ class FlaskAppWrapper(object):
             return output, error_code
 
         # compute timestamp at which message was returned to client
-        timestamps['server_response_msg_ts'] = datetime.now()
+        timestamps['server_response_msg_ts'] = datetime.now(timezone.utc)
 
         # store timing info for this message
         timestamps['server_received_msg_ts'] = server_received_msg_ts
-        timestamps['client_sent_msg_ts'] = datetime.fromtimestamp(client_sent_msg_ts)
+        timestamps['client_sent_msg_ts'] = datetime.fromtimestamp(client_sent_msg_ts, tz=timezone.utc)
         self.chat.insert_timing(message_ids[-1], timestamps)
 
         # otherwise return archi's response to client
@@ -3524,8 +3548,8 @@ class FlaskAppWrapper(object):
             'conversation_id': conversation_id,
             'archi_msg_id': message_ids[-1],
             'server_response_msg_ts': timestamps['server_response_msg_ts'].timestamp(),
-            'final_response_msg_ts': datetime.now().timestamp(),
             'model_used': self.current_model_used,
+            'final_response_msg_ts': datetime.now(timezone.utc).timestamp(),
         }
 
         end_time = time.time()
@@ -3537,7 +3561,7 @@ class FlaskAppWrapper(object):
         """
         Streams agent updates and the final response as NDJSON.
         """
-        server_received_msg_ts = datetime.now()
+        server_received_msg_ts = datetime.now(timezone.utc)
         request_data = self._parse_chat_request()
 
         message = request_data["message"]
@@ -3634,7 +3658,7 @@ class FlaskAppWrapper(object):
             feedback = {
                 "message_id"   : message_id,
                 "feedback"     : "like",
-                "feedback_ts"  : datetime.now(),
+                "feedback_ts"  : datetime.now(timezone.utc),
                 "feedback_msg" : None,
                 "incorrect"    : None,
                 "unhelpful"    : None,
@@ -3689,7 +3713,7 @@ class FlaskAppWrapper(object):
             feedback = {
                 "message_id"   : message_id,
                 "feedback"     : "dislike",
-                "feedback_ts"  : datetime.now(),
+                "feedback_ts"  : datetime.now(timezone.utc),
                 "feedback_msg" : feedback_msg,
                 "incorrect"    : incorrect,
                 "unhelpful"    : unhelpful,
@@ -3733,7 +3757,7 @@ class FlaskAppWrapper(object):
             feedback = {
                 "message_id"   : message_id,
                 "feedback"     : "comment",
-                "feedback_ts"  : datetime.now(),
+                "feedback_ts"  : datetime.now(timezone.utc),
                 "feedback_msg" : feedback_msg,
                 "incorrect"    : None,
                 "unhelpful"    : None,
