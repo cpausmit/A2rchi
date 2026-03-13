@@ -389,6 +389,13 @@ def restart(
             allow_port_reuse=True,
         )
 
+    if not no_build and not (config_files or config_dir):
+        template_manager = TemplateManager(env, verbosity)
+        try:
+            template_manager.copy_source_code(deployment_dir)
+        except Exception as e:
+            click.echo(f"Warning: could not update source code before rebuild: {e}", err=True)
+
     deployment_manager = DeploymentManager(use_podman=podman)
     deployment_manager.restart_service(
         deployment_dir=deployment_dir,
