@@ -218,6 +218,9 @@ class ChatRequestContext:
     conversation_id: int
     history: List
     is_refresh: bool
+    config_name: Optional[str] = None
+    model_used: Optional[str] = None
+    provider_used: Optional[str] = None
 
 
 class ChatWrapper:
@@ -1343,7 +1346,10 @@ class ChatWrapper:
         client_sent_msg_ts: float,
         client_timeout: float,
         timestamps: Dict[str, datetime],
+        config_name: str,
         user_id: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None
     ) -> tuple[Optional[ChatRequestContext], Optional[int]]:
         if not client_id:
             raise ValueError("client_id is required to process chat messages")
@@ -1370,6 +1376,11 @@ class ChatWrapper:
 
         if len(history) >= QUERY_LIMIT:
             return None, 500
+        
+        if model is None:
+            chat_cfg = self.config.get("services", {}).get("chat_app", {})
+            provider = chat_cfg.get("default_provider")
+            model = chat_cfg.get("default_model")
 
         return (
             ChatRequestContext(
@@ -1378,6 +1389,9 @@ class ChatWrapper:
                 conversation_id=conversation_id,
                 history=history,
                 is_refresh=is_refresh,
+                config_name=config_name,
+                model_used=model,
+                provider_used=provider
             ),
             None,
         )
@@ -1554,6 +1568,7 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                config_name,
                 user_id=user_id,
             )
             if error_code is not None:
@@ -1670,7 +1685,10 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                config_name,
                 user_id=user_id,
+                model=model,
+                provider=provider
             )
             if error_code is not None:
                 error_message = "server error; see chat logs for message"
@@ -1680,7 +1698,7 @@ class ChatWrapper:
                     error_message = "conversation not found"
                 yield {"type": "error", "status": error_code, "message": error_message}
                 return
-
+            
             requested_config = self._resolve_config_name(config_name)
             self.update_config(config_name=requested_config)
             
@@ -1712,7 +1730,7 @@ class ChatWrapper:
                 pipeline_name=self.archi.pipeline_name if hasattr(self.archi, 'pipeline_name') else None,
             )
 
-            for output in self.archi.stream(history=context.history, conversation_id=context.conversation_id):
+            for output in self.archi.stream(history=context.history, conversation_id=context.conversation_id,model=context.model_used):
                 if client_timeout and time.time() - stream_start_time > client_timeout:
                     if trace_id:
                         total_duration_ms = int((time.time() - stream_start_time) * 1000)
@@ -2060,8 +2078,7 @@ class ChatWrapper:
                 "server_response_msg_ts": timestamps["server_response_msg_ts"].timestamp(),
                 "final_response_msg_ts": datetime.now(timezone.utc).timestamp(),
                 "usage": usage,
-                "model": model,
-                "model_used": self.current_model_used,
+                "model": context.model_used
             }
 
         except GeneratorExit:
