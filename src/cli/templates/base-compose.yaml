@@ -331,6 +331,10 @@ services:
         condition: service_completed_successfully
     {% endif -%}
     environment:
+      PGHOST: {{ 'localhost' if host_mode else 'postgres' }}
+      PGPORT: {{ postgres_port }}
+      PGDATABASE: archi-db
+      PGUSER: archi
       {% for secret in required_secrets | default([]) -%}
       {{ secret.upper() }}_FILE: /run/secrets/{{ secret.lower() }}
       {% endfor %}
@@ -378,6 +382,10 @@ services:
         condition: service_completed_successfully
     {% endif -%}
     environment:
+      PGHOST: {{ 'localhost' if host_mode else 'postgres' }}
+      PGPORT: {{ postgres_port }}
+      PGDATABASE: archi-db
+      PGUSER: archi
       {% for secret in required_secrets | default([]) -%}
       {{ secret.upper() }}_FILE: /run/secrets/{{ secret.lower() }}
       {% endfor %}
@@ -449,6 +457,10 @@ services:
         condition: service_completed_successfully
     {% endif -%}
     environment:
+      PGHOST: {{ 'localhost' if host_mode else 'postgres' }}
+      PGPORT: {{ postgres_port }}
+      PGDATABASE: archi-db
+      PGUSER: archi
       {% for secret in required_secrets | default([]) -%}
       {{ secret.upper() }}_FILE: /run/secrets/{{ secret.lower() }}
       {% endfor %}
@@ -509,6 +521,10 @@ services:
         condition: service_completed_successfully
     {% endif -%}
     environment:
+      PGHOST: {{ 'localhost' if host_mode else 'postgres' }}
+      PGPORT: {{ postgres_port }}
+      PGDATABASE: archi-db
+      PGUSER: archi
       {% for secret in required_secrets | default([]) -%}
       {{ secret.upper() }}_FILE: /run/secrets/{{ secret.lower() }}
       {% endfor %}
