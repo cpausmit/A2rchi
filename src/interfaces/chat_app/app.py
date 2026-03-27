@@ -1167,20 +1167,20 @@ class ChatWrapper:
         user_content = _sanitize(user_content)
         archi_content = _sanitize(archi_content)
         link = _sanitize(link)
-        model_used = context.model_used
-        pipeline_used = context.pipeline_used
+        model_provider = f"{context.provider_used}/{context.model_used}"
+        pipeline_used = type(context.pipeline_used).__name__
         archi_context = _sanitize(archi_context)
 
         # construct insert_tups with model_used and pipeline_used
         # Format: (service, conversation_id, sender, content, link, context, ts, model_used, pipeline_used)
         insert_tups = (
             [
-                (service, conversation_id, user_sender, user_content, '', '', user_msg_ts, model_used, pipeline_used),
-                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_used, pipeline_used),
+                (service, conversation_id, user_sender, user_content, '', '', user_msg_ts, model_provider, pipeline_used),
+                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_provider, pipeline_used),
             ]
             if not is_refresh
             else [
-                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_used, pipeline_used),
+                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_provider, pipeline_used),
             ]
         )
 
@@ -1358,7 +1358,6 @@ class ChatWrapper:
         if conversation_id is None:
             conversation_id = self.create_conversation(content, client_id, user_id)
             history = []
-            model = None #Use default model in new conversations
         else:
             history = self.query_conversation_history(conversation_id, client_id, user_id)
             self.update_conversation_timestamp(conversation_id, client_id, user_id)
@@ -1377,7 +1376,7 @@ class ChatWrapper:
 
         if len(history) >= QUERY_LIMIT:
             return None, 500
-        
+
         if model is None:
             logger.debug(f"Model for chat context is None. Setting to default.")
             chat_cfg = self.config.get("services", {}).get("chat_app", {})
@@ -1693,7 +1692,8 @@ class ChatWrapper:
                 config_name,
                 user_id=user_id,
                 model=model,
-                provider=provider
+                provider=provider,
+                pipeline=self.archi.pipeline
             )
             if error_code is not None:
                 error_message = "server error; see chat logs for message"
@@ -2084,7 +2084,9 @@ class ChatWrapper:
                 "server_response_msg_ts": timestamps["server_response_msg_ts"].timestamp(),
                 "final_response_msg_ts": datetime.now(timezone.utc).timestamp(),
                 "usage": usage,
-                "model_used": model or context.model_used
+                "model_used": model or context.model_used,
+                "provider_used": provider or context.provider_used,
+                "pipeline_used": context.pipeline_used,
             }
 
         except GeneratorExit:
