@@ -218,6 +218,10 @@ class ChatRequestContext:
     conversation_id: int
     history: List
     is_refresh: bool
+    config_name: Optional[str] = None
+    model_used: Optional[str] = None
+    provider_used: Optional[str] = None
+    pipeline_used: Optional[str] = None
 
 
 class ChatWrapper:
@@ -307,8 +311,6 @@ class ChatWrapper:
         # track active config/model/pipeline state
         self.default_config_name = self.config.get("name")
         self.current_config_name = None
-        self.current_model_used = None
-        self.current_pipeline_used = None
         self._config_cache = {}
         if self.default_config_name:
             self._config_cache[self.default_config_name] = self.config
@@ -374,8 +376,6 @@ class ChatWrapper:
         model_name = self._extract_model_name(config_payload)
         
         self.current_config_name = target_config_name
-        self.current_pipeline_used = agent_class
-        self.current_model_used = model_name
         self.archi.update(pipeline=agent_class, config_name=target_config_name)
 
     def _extract_model_name(self, config_payload):
@@ -1151,7 +1151,7 @@ class ChatWrapper:
 
         return context
 
-    def insert_conversation(self, conversation_id, user_message, archi_message, link, archi_context, is_refresh=False) -> List[int]:
+    def insert_conversation(self, conversation_id, user_message, archi_message, link, archi_context, context:ChatRequestContext, is_refresh=False) -> List[int]:
         """
         """
         logger.debug("Entered insert_conversation.")
@@ -1167,18 +1167,20 @@ class ChatWrapper:
         user_content = _sanitize(user_content)
         archi_content = _sanitize(archi_content)
         link = _sanitize(link)
+        model_provider = f"{context.provider_used}/{context.model_used}"
+        pipeline_used = type(context.pipeline_used).__name__
         archi_context = _sanitize(archi_context)
 
         # construct insert_tups with model_used and pipeline_used
         # Format: (service, conversation_id, sender, content, link, context, ts, model_used, pipeline_used)
         insert_tups = (
             [
-                (service, conversation_id, user_sender, user_content, '', '', user_msg_ts, self.current_model_used, self.current_pipeline_used),
-                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, self.current_model_used, self.current_pipeline_used),
+                (service, conversation_id, user_sender, user_content, '', '', user_msg_ts, model_provider, pipeline_used),
+                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_provider, pipeline_used),
             ]
             if not is_refresh
             else [
-                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, self.current_model_used, self.current_pipeline_used),
+                (service, conversation_id, ARCHI_SENDER, archi_content, link, archi_context, archi_msg_ts, model_provider, pipeline_used),
             ]
         )
 
@@ -1343,7 +1345,11 @@ class ChatWrapper:
         client_sent_msg_ts: float,
         client_timeout: float,
         timestamps: Dict[str, datetime],
+        config_name: str,
         user_id: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        pipeline: Optional[str] = None
     ) -> tuple[Optional[ChatRequestContext], Optional[int]]:
         if not client_id:
             raise ValueError("client_id is required to process chat messages")
@@ -1371,6 +1377,13 @@ class ChatWrapper:
         if len(history) >= QUERY_LIMIT:
             return None, 500
 
+        if model is None:
+            logger.debug(f"Model for chat context is None. Setting to default.")
+            chat_cfg = self.config.get("services", {}).get("chat_app", {})
+            provider = chat_cfg.get("default_provider")
+            model = chat_cfg.get("default_model")
+
+        logger.debug(f"Preparing chat context with model {model} provider {provider}")
         return (
             ChatRequestContext(
                 sender=sender,
@@ -1378,6 +1391,10 @@ class ChatWrapper:
                 conversation_id=conversation_id,
                 history=history,
                 is_refresh=is_refresh,
+                config_name=config_name,
+                model_used=model,
+                provider_used=provider,
+                pipeline_used=pipeline,
             ),
             None,
         )
@@ -1510,6 +1527,7 @@ class ChatWrapper:
             archi_message,
             best_reference,
             context_data,
+            context,
             context.is_refresh,
         )
         timestamps["insert_convo_ts"] = datetime.now(timezone.utc)
@@ -1554,6 +1572,7 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                config_name,
                 user_id=user_id,
             )
             if error_code is not None:
@@ -1670,7 +1689,11 @@ class ChatWrapper:
                 client_sent_msg_ts,
                 client_timeout,
                 timestamps,
+                config_name,
                 user_id=user_id,
+                model=model,
+                provider=provider,
+                pipeline=self.archi.pipeline
             )
             if error_code is not None:
                 error_message = "server error; see chat logs for message"
@@ -1680,11 +1703,13 @@ class ChatWrapper:
                     error_message = "conversation not found"
                 yield {"type": "error", "status": error_code, "message": error_message}
                 return
-
+            
             requested_config = self._resolve_config_name(config_name)
             self.update_config(config_name=requested_config)
             
-            # If provider and model are specified, override the pipeline's LLM
+            # If provider and model are specified in the context, override the pipeline's LLM
+            provider = context.provider_used
+            model = context.model_used
             if provider and model:
                 try:
                     override_llm = self._create_provider_llm(provider, model, provider_api_key)
@@ -1695,7 +1720,6 @@ class ChatWrapper:
                         if hasattr(self.archi.pipeline, 'refresh_agent'):
                             self.archi.pipeline.refresh_agent(force=True)
                         logger.info(f"Overrode pipeline LLM with {provider}/{model}")
-                        self.current_model_used = f"{provider}/{model}"
                 except ValueError as e:
                     logger.warning(f"Failed to create provider LLM {provider}/{model}: {e}")
                     yield {"type": "error", "status": 400, "message": str(e)}
@@ -1712,7 +1736,7 @@ class ChatWrapper:
                 pipeline_name=self.archi.pipeline_name if hasattr(self.archi, 'pipeline_name') else None,
             )
 
-            for output in self.archi.stream(history=context.history, conversation_id=context.conversation_id):
+            for output in self.archi.stream(history=context.history, conversation_id=context.conversation_id,model=context.model_used):
                 if client_timeout and time.time() - stream_start_time > client_timeout:
                     if trace_id:
                         total_duration_ms = int((time.time() - stream_start_time) * 1000)
@@ -2060,8 +2084,9 @@ class ChatWrapper:
                 "server_response_msg_ts": timestamps["server_response_msg_ts"].timestamp(),
                 "final_response_msg_ts": datetime.now(timezone.utc).timestamp(),
                 "usage": usage,
-                "model": model,
-                "model_used": self.current_model_used,
+                "model_used": model or context.model_used,
+                "provider_used": provider or context.provider_used,
+                "pipeline_used": context.pipeline_used,
             }
 
         except GeneratorExit:
@@ -3476,6 +3501,7 @@ class FlaskAppWrapper(object):
             # Provider-based model selection
             "provider": payload.get("provider"),
             "model": payload.get("model"),
+            "pipeline": payload.get("pipeline"),
         }
 
 
@@ -3506,6 +3532,7 @@ class FlaskAppWrapper(object):
         client_sent_msg_ts = request_data["client_sent_msg_ts"]
         client_timeout = request_data["client_timeout"]
         client_id = request_data["client_id"]
+        model = request_data["model"]
 
         if not client_id:
             return jsonify({'error': 'client_id missing'}), 400
@@ -3548,7 +3575,7 @@ class FlaskAppWrapper(object):
             'conversation_id': conversation_id,
             'archi_msg_id': message_ids[-1],
             'server_response_msg_ts': timestamps['server_response_msg_ts'].timestamp(),
-            'model_used': self.current_model_used,
+            'model_used': model,
             'final_response_msg_ts': datetime.now(timezone.utc).timestamp(),
         }
 
